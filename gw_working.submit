@@ -1,0 +1,29 @@
+LIKELIHOOD=NLE
+NLIVE=1000
+DIMENSIONS=2
+NUM_SIMULATIONS=20000
+BASE=0
+REPEAT = $$([$(BASE) + $(PROCESS)])
+
+accounting_group=ligo.dev.o4.cbc.pe.bilby
+
+executable   = GW_working_multiple.py
+arguments    = --likelihood $(LIKELIHOOD) --nlive $(NLIVE) --dimensions $(DIMENSIONS) --num-simulations $(NUM_SIMULATIONS) --repeat $(REPEAT)
+
+output       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS).out
+error       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS).err
+log       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS).log
+
+request_cpus   = 1
+request_memory = 4096M
+request_disk   = 10240K
+
+should_transfer_files = yes
+when_to_transfer_output = on_exit
+transfer_output_files = RESULTS/
+
+stream_error = True
+stream_output = True
+preserve_relative_paths = True
+
+queue 10
