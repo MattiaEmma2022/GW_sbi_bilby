@@ -1,11 +1,11 @@
-#!/home/mattia.emma/.conda/envs/sbi/bin/python
+#!/home/mattia.emma/.conda/envs/sbi_test/bin/python
 
 import sys
 import time
 from collections import namedtuple
 import json
 import argparse
-
+import os
 import bilby
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,12 +24,14 @@ class BenchmarkLikelihood(object):
         benchmark_likelihood,
         reference_likelihood,
         prior,
+        reference_prior,
         outdir,
         injection_parameters,
     ):
         self.benchmark_likelihood = benchmark_likelihood
         self.reference_likelihood = reference_likelihood
         self.prior = prior
+        self.reference_prior = reference_prior
         self.outdir = outdir
         self.injection_parameters = injection_parameters
         self.statistics = dict(
@@ -61,7 +63,7 @@ class BenchmarkLikelihood(object):
 
         result_reference = bilby.run_sampler(
             likelihood=self.reference_likelihood,
-            priors=self.prior,
+            priors=self.reference_prior,
             outdir=self.outdir,
             injection_parameters=injection_parameters,
             label=self.benchmark_likelihood.label + "_REFERENCE",
@@ -78,7 +80,7 @@ class BenchmarkLikelihood(object):
             **kwargs,
         )
 
-        for key, val in self.prior.items():
+        for key, val in self.reference_prior.items():
             if val.is_fixed is False:
                 samplesA = result_benchmark.posterior[key]
                 samplesB = result_reference.posterior[key]
@@ -99,9 +101,9 @@ class BenchmarkLikelihood(object):
                     
 
     def write_results(self):
-        bilby.utils.check_directory_exists_and_if_not_mkdir("RESULTS")
+        bilby.utils.check_directory_exists_and_if_not_mkdir("RESULTS_working")
         with open(
-            f"RESULTS/result_benchmark_{self.benchmark_likelihood.label}.json", "w"
+            f"RESULTS_working/result_benchmark_{self.benchmark_likelihood.label}.json", "w"
         ) as file:
             json.dump(self.statistics, file, indent=4)
 
@@ -139,7 +141,7 @@ def calculate_js(samplesA, samplesB, ntests=100, xsteps=100):
 print(f"Running command {' '.join(sys.argv)}")
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dimensions", type=int,default=2)
+parser.add_argument("--dimensions", type=int,default=1)
 parser.add_argument("--likelihood", type=str)
 parser.add_argument("--num-simulations", type=int)
 parser.add_argument("--repeat", type=int, default=1)
@@ -147,16 +149,18 @@ parser.add_argument("--resume", type=bool, default=True)
 parser.add_argument("--nlive", type=int, default=1000)
 parser.add_argument("--dlogz", type=float, default=0.5)
 parser.add_argument("--rseed", type=int, default=42)
+parser.add_argument("--time_lower", type=float, default=0)
+parser.add_argument("--time_upper", type=float, default=0)
 args = parser.parse_args()
 
-outdir = "outdir_benchmark_gw/Runs_L_"+args.likelihood+'_N'+str(args.num_simulations)+'_D'+str(args.dimensions)
+outdir = "outdir_benchmark_gw/Runs_working_L_"+args.likelihood+'_N'+str(args.num_simulations)+'_D'+str(args.dimensions)+'_TL'+str(args.time_lower)+'_TU'+str(args.time_upper)
 np.random.seed(args.rseed)
+times=[args.time_lower, args.time_upper]
 num_simulations = args.num_simulations
 ################################################# Old code ######################################################
-#Create priors and signal
 injection_parameters = dict(
-    mass_1=36.0,
-    mass_2=29.0,
+    chirp_mass=30.0,
+    mass_ratio=1.0,
     a_1=0.4,
     a_2=0.3,
     tilt_1=0.5,
@@ -172,13 +176,13 @@ injection_parameters = dict(
     dec=-1.2108,
 )
 
-injection_parameters['sigma'] = 1
-injection_parameters['chirp_mass']=28.1
+#noise_parameters=dict( sigma=1,)
 
 signal_priors = bilby.gw.prior.BBHPriorDict()
 for key in [
     "a_1",
     "a_2",
+    "mass_ratio",
     "tilt_1",
     "tilt_2",
     "phi_12",
@@ -192,7 +196,7 @@ for key in [
     "theta_jn"
 ]:
     signal_priors[key] = injection_parameters[key]
-signal_priors['mass_ratio']=29.0/36.0
+signal_priors['chirp_mass']=bilby.gw.prior.UniformInComponentsChirpMass(minimum=20, maximum=40, name='chirp_mass', latex_label='$\\mathcal{M}$', unit=None, boundary=None)
 noise_priors = bilby.core.prior.PriorDict(dict(sigma=bilby.core.prior.Uniform(0, 2, 'sigma')))
 
 duration = 4.0
@@ -229,66 +233,165 @@ ifos.inject_signal(
 )
 ifo = ifos[0]
 
+
+############################################Use this new yobs######################################################
 yobs = ifo.whitened_time_domain_strain
 xobs = ifo.time_array
-#Create the simulated data from noise and signal simulation
-noise = GenerateWhitenedIFONoise(ifo)
-signal = GenerateWhitenedSignal(ifo, waveform_generator, signal_priors)
-signal_and_noise = sbibilby.AdditiveSignalAndNoise(signal, noise)
+
+full_noise = GenerateWhitenedIFONoise(ifo, False, times)
+full_signal = GenerateWhitenedSignal(ifo, waveform_generator, signal_priors, False, times)
+full_signal_and_noise = sbibilby.AdditiveSignalAndNoise(full_signal, full_noise)
 
 priors = noise_priors | signal_priors
 priors = bilby.core.prior.PriorDict(priors)
 priors.convert_floats_to_delta_functions()
-sample = priors.sample()
-signal_and_noise.get_data(sample)
 
 
 ##################### New code#########################################
-reference_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
-    ifos,
-    waveform_generator,
-    priors=priors,
- )
+
 #Training the neural network 
 label = f"SG_{args.likelihood}_D{args.dimensions}_N{num_simulations}_R{args.repeat}"
 if args.likelihood == "NLE":
     benchmark_likelihood = sbibilby.NLELikelihood(
         yobs,
-        signal_and_noise,
+        full_signal_and_noise,
         bilby_prior=priors,
         label=label,
         num_simulations=num_simulations,
         cache_directory=outdir,
         show_progress_bar=True,
+        cache=True,
     )
 elif args.likelihood == "RNLE":
     benchmark_likelihood = sbibilby.NLEResidualLikelihood(
         yobs,
-        signal_and_noise,
+        full_signal_and_noise,
         bilby_prior=priors,
         label=label,
         num_simulations=num_simulations,
         cache_directory=outdir,
     )
-
+start=time.time()
 benchmark_likelihood.init()
+end=time.time()
+total_time=end-start
+file_path = "RESULTS_working_times/Training_time_benchmark.txt"
+if not os.path.exists('RESULTS_working_times'):
+    # Create the directory
+    os.mkdir('RESULTS_working')
+# Check if the file exists
+if not os.path.exists(file_path):
+    # Create the file if it does not exist
+    with open(file_path, "w") as f:
+        pass  # Simply creating the file
+use_mask=False
+with open(file_path, "a") as f:
+    f.write(f"{total_time:.2f} {num_simulations} {use_mask} {args.likelihood} {times[0]} {times[1]}\n")
+    f.close()
+
+############################################ Reference likelihood #####################################
+reference_injection_parameters = dict(
+    chirp_mass=30.0,
+    mass_ratio=1.0,
+    a_1=0.4,
+    a_2=0.3,
+    tilt_1=0.5,
+    tilt_2=1.0,
+    phi_12=1.7,
+    phi_jl=0.3,
+    luminosity_distance=1000.0,
+    theta_jn=0.4,
+    psi=2.659,
+    phase=1.3,
+    geocent_time=1126259642.413,
+    ra=1.375,
+    dec=-1.2108,
+)
+
+reference_signal_priors = bilby.gw.prior.BBHPriorDict()
+for key in [
+    "a_1",
+    "a_2",
+    "mass_ratio",
+    "tilt_1",
+    "tilt_2",
+    "phi_12",
+    "phi_jl",
+    "psi",
+    "ra",
+    "dec",
+    "geocent_time",
+    "phase",
+    "luminosity_distance",
+    "theta_jn"
+]:
+    reference_signal_priors[key] = reference_injection_parameters[key]
+reference_signal_priors['chirp_mass']=bilby.gw.prior.UniformInComponentsChirpMass(minimum=20, maximum=40, name='chirp_mass', latex_label='$\\mathcal{M}$', unit=None, boundary=None)
 
 
+duration = 4.0
+sampling_frequency = 1024.0
+minimum_frequency = 20
+trigger = 1126259642.4
+start_time = trigger - duration / 2
+
+reference_waveform_arguments = dict(
+    waveform_approximant="IMRPhenomPv2",
+    reference_frequency=50.0,
+    minimum_frequency=minimum_frequency,
+)
+
+
+reference_waveform_generator = bilby.gw.WaveformGenerator(
+    duration=duration,
+    sampling_frequency=sampling_frequency,
+    frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
+    parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
+    waveform_arguments=reference_waveform_arguments,
+)
+
+reference_ifos = bilby.gw.detector.InterferometerList(['H1'])
+reference_ifos.set_strain_data_from_power_spectral_densities(
+    sampling_frequency=sampling_frequency,
+    duration=duration,
+    start_time=start_time,
+)
+reference_ifos.inject_signal(
+    waveform_generator=reference_waveform_generator, parameters=reference_injection_parameters
+)
+
+
+reference_priors = reference_signal_priors
+reference_priors = bilby.core.prior.PriorDict(reference_priors)
+reference_priors.convert_floats_to_delta_functions()
+
+
+reference_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
+    reference_ifos,
+    reference_waveform_generator,
+    priors=reference_priors,
+ )
+######################################   Benchmark ##################################
 bench = BenchmarkLikelihood(
     benchmark_likelihood,
     reference_likelihood,
     priors,
+    reference_priors,
     outdir,
-    injection_parameters=injection_parameters,
+    injection_parameters=reference_injection_parameters,
     
 )
 bench.benchmark_time()
 bench.benchmark_posterior_sampling(
     dict(
+        sampler="dynesty",
         nlive=args.nlive,
         dlogz=args.dlogz,
         resume=args.resume,
         print_method="interval-10",
+        npool=8,
+        sample="acceptance-walk",
+        check_point_delta_t=180,
     )
 )
 bench.write_results()

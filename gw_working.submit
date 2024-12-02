@@ -1,18 +1,20 @@
 LIKELIHOOD=NLE
 NLIVE=1000
 DIMENSIONS=1
-NUM_SIMULATIONS=500
+NUM_SIMULATIONS=5000
 BASE=0
+TIME_LOWER=1.5
+TIME_UPPER=0.3
 REPEAT = $$([$(BASE) + $(PROCESS)])
 
 accounting_group=ligo.dev.o4.cbc.pe.bilby
 
 executable   = GW_working_multiple.py
-arguments    = --likelihood $(LIKELIHOOD) --nlive $(NLIVE) --num-simulations $(NUM_SIMULATIONS) --repeat $(REPEAT)
+arguments    = --likelihood $(LIKELIHOOD) --nlive $(NLIVE) --num-simulations $(NUM_SIMULATIONS) --repeat $(REPEAT) --time_lower $(TIME_LOWER) --time_upper $(TIME_UPPER)
 
-output       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS).out
-error       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS).err
-log       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS).log
+output       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS)_TL$(TIME_LOWER)_TU$(TIME_UPPER).out
+error       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS)_TL$(TIME_LOWER)_TU$(TIME_UPPER).err
+log       = logs/$(LIKELIHOOD)_$(DIMENSIONS)D_N$(NUM_SIMULATIONS)_B$(BASE)_P$(PROCESS)_TL$(TIME_LOWER)_TU$(TIME_UPPER).log
 
 request_cpus   = 8
 request_memory = 4096M
@@ -20,7 +22,7 @@ request_disk   = 10240K
 
 should_transfer_files = yes
 when_to_transfer_output = on_exit
-transfer_output_files = RESULTS_working/, outdir_benchmark_gw/
+transfer_output_files = RESULTS_working_time/, outdir_benchmark_gw/
 
 stream_error = True
 stream_output = True
