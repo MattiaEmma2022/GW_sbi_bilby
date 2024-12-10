@@ -35,11 +35,11 @@ class BenchmarkLikelihood(object):
         self.reference_prior = reference_prior
         self.outdir = outdir
         self.injection_parameters = injection_parameters
+        self.training_time=training_time
         self.statistics = dict(
             likelihood_class=benchmark_likelihood.__class__.__name__,
             likelihood_metadata=benchmark_likelihood.meta_data,
         )
-        self.training_time=training_time
 
     def _time_likelihood(self, likelihood, n, name):
         eval_times = []
@@ -103,9 +103,9 @@ class BenchmarkLikelihood(object):
                     
 
     def write_results(self):
-        bilby.utils.check_directory_exists_and_if_not_mkdir("RESULTS_working_test")
+        bilby.utils.check_directory_exists_and_if_not_mkdir("RESULTS_working_all")
         with open(
-            f"RESULTS_working_test/result_benchmark_{self.benchmark_likelihood.label}.json", "w"
+            f"RESULTS_working_all/result_benchmark_{self.benchmark_likelihood.label}.json", "w"
         ) as file:
             json.dump(self.statistics, file, indent=4)
 
@@ -156,7 +156,7 @@ parser.add_argument("--time_upper", type=float, default=0)
 args = parser.parse_args()
 
 use_mask=False
-outdir = "outdir_benchmark_gw_test/Runs_working_L_"+args.likelihood+'_N'+str(args.num_simulations)+'_D'+str(args.dimensions)+'_TL'+str(args.time_lower)+'_TU'+str(args.time_upper)+'mask_'+str(use_mask)
+outdir = "outdir_benchmark_gw_all/Runs_working_L_"+args.likelihood+'_N'+str(args.num_simulations)+'_D'+str(args.dimensions)+'_TL'+str(args.time_lower)+'_TU'+str(args.time_upper)+'mask_'+str(use_mask)
 np.random.seed(args.rseed)
 times=[args.time_lower, args.time_upper]
 num_simulations = args.num_simulations
@@ -183,22 +183,22 @@ injection_parameters = dict(
 
 signal_priors = bilby.gw.prior.BBHPriorDict()
 for key in [
-    "a_1",
-    "a_2",
-    "mass_ratio",
-    "tilt_1",
-    "tilt_2",
-    "phi_12",
-    "phi_jl",
-    "psi",
-    "ra",
-    "dec",
-    "geocent_time",
-    "phase",
-    "luminosity_distance",
-    "theta_jn"
-]:
-    signal_priors[key] = injection_parameters[key]
+#     "a_1",
+#     "a_2",
+#     "mass_ratio",
+#     "tilt_1",
+#     "tilt_2",
+#     "phi_12",
+#     "phi_jl",
+#     "psi",
+#     "ra",
+#     "dec",
+     "geocent_time",
+     "phase",
+#     "luminosity_distance",
+#     "theta_jn"
+ ]:
+     signal_priors[key] = injection_parameters[key]
 signal_priors['chirp_mass']=bilby.gw.prior.UniformInComponentsChirpMass(minimum=20, maximum=40, name='chirp_mass', latex_label='$\\mathcal{M}$', unit=None, boundary=None)
 noise_priors = bilby.core.prior.PriorDict(dict(sigma=bilby.core.prior.Uniform(0, 2, 'sigma')))
 
@@ -277,7 +277,12 @@ elif args.likelihood == "RNLE":
 start=time.time()
 benchmark_likelihood.init()
 end=time.time()
-training_time=end-start
+total_time=end-start
+file_path = "Training_time_benchmark_RNLE.txt"
+if not os.path.exists('RESULTS_working_all'):
+    # Create the directory
+    os.mkdir('RESULTS_working_all')
+# Check if the file exists
 
 
 ############################################ Reference likelihood #####################################
@@ -301,22 +306,22 @@ reference_injection_parameters = dict(
 
 reference_signal_priors = bilby.gw.prior.BBHPriorDict()
 for key in [
-    "a_1",
-    "a_2",
-    "mass_ratio",
-    "tilt_1",
-    "tilt_2",
-    "phi_12",
-    "phi_jl",
-    "psi",
-    "ra",
-    "dec",
-    "geocent_time",
-    "phase",
-    "luminosity_distance",
-    "theta_jn"
-]:
-    reference_signal_priors[key] = reference_injection_parameters[key]
+#     "a_1",
+#     "a_2",
+#     "mass_ratio",
+#     "tilt_1",
+#     "tilt_2",
+#     "phi_12",
+#     "phi_jl",
+#     "psi",
+#     "ra",
+#     "dec",
+     "geocent_time",
+     "phase",
+#     "luminosity_distance",
+#     "theta_jn"
+ ]:
+     reference_signal_priors[key] = reference_injection_parameters[key]
 reference_signal_priors['chirp_mass']=bilby.gw.prior.UniformInComponentsChirpMass(minimum=20, maximum=40, name='chirp_mass', latex_label='$\\mathcal{M}$', unit=None, boundary=None)
 
 
@@ -370,7 +375,7 @@ bench = BenchmarkLikelihood(
     reference_priors,
     outdir,
     injection_parameters=reference_injection_parameters,
-    training_time=training_time,
+    training_time=total_time,
     
 )
 bench.benchmark_time()

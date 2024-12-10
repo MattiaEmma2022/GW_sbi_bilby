@@ -35,11 +35,12 @@ class BenchmarkLikelihood(object):
         self.reference_prior = reference_prior
         self.outdir = outdir
         self.injection_parameters = injection_parameters
+        self.training_time=training_time
         self.statistics = dict(
             likelihood_class=benchmark_likelihood.__class__.__name__,
             likelihood_metadata=benchmark_likelihood.meta_data,
         )
-        self.training_time=training_time
+        
 
     def _time_likelihood(self, likelihood, n, name):
         eval_times = []
@@ -53,7 +54,7 @@ class BenchmarkLikelihood(object):
             np.mean(eval_times)
         )
         self.statistics[f"likelihood_{name}_eval_time_std"] = float(np.std(eval_times))
-
+         
     def benchmark_time(self, n=100):
         self._time_likelihood(self.benchmark_likelihood, n, "benchmark")
         self._time_likelihood(self.reference_likelihood, n, "reference")
@@ -103,9 +104,9 @@ class BenchmarkLikelihood(object):
                     
 
     def write_results(self):
-        bilby.utils.check_directory_exists_and_if_not_mkdir("RESULTS_working_test")
+        bilby.utils.check_directory_exists_and_if_not_mkdir("RESULTS_working_times")
         with open(
-            f"RESULTS_working_test/result_benchmark_{self.benchmark_likelihood.label}.json", "w"
+            f"RESULTS_working_times/result_benchmark_{self.benchmark_likelihood.label}.json", "w"
         ) as file:
             json.dump(self.statistics, file, indent=4)
 
@@ -151,12 +152,12 @@ parser.add_argument("--resume", type=bool, default=True)
 parser.add_argument("--nlive", type=int, default=1000)
 parser.add_argument("--dlogz", type=float, default=0.5)
 parser.add_argument("--rseed", type=int, default=42)
-parser.add_argument("--time_lower", type=float, default=0)
-parser.add_argument("--time_upper", type=float, default=0)
+parser.add_argument("--time_lower", type=float, default=0.3)
+parser.add_argument("--time_upper", type=float, default=0.3)
 args = parser.parse_args()
 
-use_mask=False
-outdir = "outdir_benchmark_gw_test/Runs_working_L_"+args.likelihood+'_N'+str(args.num_simulations)+'_D'+str(args.dimensions)+'_TL'+str(args.time_lower)+'_TU'+str(args.time_upper)+'mask_'+str(use_mask)
+use_mask=True
+outdir = "outdir_benchmark_gw_times/Runs_working_L_"+args.likelihood+'_N'+str(args.num_simulations)+'_D'+str(args.dimensions)+'_TL'+str(args.time_lower)+'_TU'+str(args.time_upper)+'mask_'+str(use_mask)
 np.random.seed(args.rseed)
 times=[args.time_lower, args.time_upper]
 num_simulations = args.num_simulations
@@ -239,6 +240,11 @@ ifo = ifos[0]
 
 ############################################Use this new yobs######################################################
 yobs = ifo.whitened_time_domain_strain
+if use_mask==True:
+    window_start = ifo.start_time +2- args.time_lower
+    window_end = ifo.start_time + 2 + args.time_upper
+    mask = (ifo.time_array >= window_start) & (ifo.time_array <= window_end)
+    yobs=yobs[mask]
 xobs = ifo.time_array
 
 full_noise = GenerateWhitenedIFONoise(ifo)
@@ -278,6 +284,9 @@ start=time.time()
 benchmark_likelihood.init()
 end=time.time()
 training_time=end-start
+if not os.path.exists('RESULTS_working'):
+    # Create the directory
+    os.mkdir('RESULTS_working')
 
 
 ############################################ Reference likelihood #####################################
@@ -370,8 +379,7 @@ bench = BenchmarkLikelihood(
     reference_priors,
     outdir,
     injection_parameters=reference_injection_parameters,
-    training_time=training_time,
-    
+    training_time=training_time,    
 )
 bench.benchmark_time()
 bench.benchmark_posterior_sampling(
