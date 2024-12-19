@@ -1,4 +1,4 @@
-#!/home/mattia.emma/.conda/envs/sbi_test/bin/python
+#!/home/mattia.emma/.conda/envs/sbi/bin/python
 
 import sys
 import time
@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import gaussian_kde
+import copy
 
 import bilby.core.likelihood.simulation_based_inference as sbibilby
 from bilby.core.likelihood.simulation_based_inference import GenerateData
@@ -79,6 +80,7 @@ class BenchmarkLikelihood(object):
             outdir=self.outdir,
             injection_parameters=injection_parameters,
             label=self.benchmark_likelihood.label,
+            #conversion_function=bilby.gw.conversion.generate_all_bbh_parameters,
             **kwargs,
         )
 
@@ -144,8 +146,8 @@ print(f"Running command {' '.join(sys.argv)}")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dimensions", type=int,default=1)
-parser.add_argument("--likelihood", type=str)
-parser.add_argument("--num-simulations", type=int)
+parser.add_argument("--likelihood", type=str, default="RNLE")
+parser.add_argument("--num-simulations", type=int, default=10)
 parser.add_argument("--repeat", type=int, default=1)
 parser.add_argument("--resume", type=bool, default=True)
 parser.add_argument("--nlive", type=int, default=1000)
@@ -234,23 +236,45 @@ ifos.set_strain_data_from_power_spectral_densities(
 ifos.inject_signal(
     waveform_generator=waveform_generator, parameters=injection_parameters
 )
-ifo = ifos[0]
+
 
 
 ############################################Use this new yobs######################################################
-yobs = ifo.whitened_time_domain_strain
-xobs = ifo.time_array
-
-full_noise = GenerateWhitenedIFONoise(ifo)
-full_signal = GenerateWhitenedSignal(ifo, waveform_generator, signal_priors)
-full_signal_and_noise = sbibilby.AdditiveSignalAndNoise(ifo, full_signal, full_noise, use_mask, times)
+yobs = ifos[0].whitened_time_domain_strain
+xobs = ifos[0].time_array
+ifo = ifos[0]
 
 priors = noise_priors | signal_priors
 priors = bilby.core.prior.PriorDict(priors)
 priors.convert_floats_to_delta_functions()
 
+############################################ Reference likelihood #####################################
+reference_injection_parameters = injection_parameters.copy()
 
+reference_waveform_generator = bilby.gw.WaveformGenerator(
+    duration=duration,
+    sampling_frequency=sampling_frequency,
+    frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
+    parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
+    waveform_arguments=waveform_arguments,
+)
+
+reference_ifos = ifos
+
+reference_priors = signal_priors.copy()
+reference_priors = bilby.core.prior.PriorDict(reference_priors)
+reference_priors.convert_floats_to_delta_functions()
+
+
+reference_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
+    reference_ifos,
+    reference_waveform_generator,
+    priors=reference_priors,
+ )
 ##################### New code#########################################
+full_noise = GenerateWhitenedIFONoise(ifo, use_mask, times)
+full_signal = GenerateWhitenedSignal(ifo, waveform_generator, signal_priors, use_mask, times)
+full_signal_and_noise = sbibilby.AdditiveSignalAndNoise( full_signal, full_noise)
 
 #Training the neural network 
 label = f"SG_{args.likelihood}_D{args.dimensions}_N{num_simulations}_R{args.repeat}_TL{args.time_lower}_TU{args.time_upper}"
@@ -280,88 +304,7 @@ end=time.time()
 training_time=end-start
 
 
-############################################ Reference likelihood #####################################
-reference_injection_parameters = dict(
-    chirp_mass=30.0,
-    mass_ratio=1.0,
-    a_1=0.4,
-    a_2=0.3,
-    tilt_1=0.5,
-    tilt_2=1.0,
-    phi_12=1.7,
-    phi_jl=0.3,
-    luminosity_distance=1000.0,
-    theta_jn=0.4,
-    psi=2.659,
-    phase=1.3,
-    geocent_time=1126259642.413,
-    ra=1.375,
-    dec=-1.2108,
-)
 
-reference_signal_priors = bilby.gw.prior.BBHPriorDict()
-for key in [
-    "a_1",
-    "a_2",
-    "mass_ratio",
-    "tilt_1",
-    "tilt_2",
-    "phi_12",
-    "phi_jl",
-    "psi",
-    "ra",
-    "dec",
-    "geocent_time",
-    "phase",
-    "luminosity_distance",
-    "theta_jn"
-]:
-    reference_signal_priors[key] = reference_injection_parameters[key]
-reference_signal_priors['chirp_mass']=bilby.gw.prior.UniformInComponentsChirpMass(minimum=20, maximum=40, name='chirp_mass', latex_label='$\\mathcal{M}$', unit=None, boundary=None)
-
-
-duration = 4.0
-sampling_frequency = 1024.0
-minimum_frequency = 20
-trigger = 1126259642.4
-start_time = trigger - duration / 2
-
-reference_waveform_arguments = dict(
-    waveform_approximant="IMRPhenomPv2",
-    reference_frequency=50.0,
-    minimum_frequency=minimum_frequency,
-)
-
-
-reference_waveform_generator = bilby.gw.WaveformGenerator(
-    duration=duration,
-    sampling_frequency=sampling_frequency,
-    frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
-    parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
-    waveform_arguments=reference_waveform_arguments,
-)
-
-reference_ifos = bilby.gw.detector.InterferometerList(['H1'])
-reference_ifos.set_strain_data_from_power_spectral_densities(
-    sampling_frequency=sampling_frequency,
-    duration=duration,
-    start_time=start_time,
-)
-reference_ifos.inject_signal(
-    waveform_generator=reference_waveform_generator, parameters=reference_injection_parameters
-)
-
-
-reference_priors = reference_signal_priors
-reference_priors = bilby.core.prior.PriorDict(reference_priors)
-reference_priors.convert_floats_to_delta_functions()
-
-
-reference_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
-    reference_ifos,
-    reference_waveform_generator,
-    priors=reference_priors,
- )
 ######################################   Benchmark ##################################
 bench = BenchmarkLikelihood(
     benchmark_likelihood,
